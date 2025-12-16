@@ -1,0 +1,22 @@
+services:
+  mod-build:
+    build:
+      context: ./dumper-mod
+      dockerfile: Dockerfile.build
+    volumes:
+      - ./dumper-mod/build:/src/build
+
+  gtnh-dump:
+    build:
+      context: ./runner
+    depends_on:
+      - mod-build
+    environment:
+      GTNH_SERVER_ZIP_URL: "${GTNH_SERVER_ZIP_URL}"
+      DUMPER_JAR_PATH: "/dumper/RecipeDumper.jar"
+      JAVA_XMS: "${JAVA_XMS:-2G}"
+      JAVA_XMX: "${JAVA_XMX:-6G}"
+    volumes:
+      - ./out:/work/out
+      - ./cache/server:/work/server
+      - ./dumper-mod/build/libs:/dumper:ro
