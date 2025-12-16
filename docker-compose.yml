@@ -26,11 +26,16 @@ services:
       DUMPER_JAR_PATH: "/dumper/RecipeDumper.jar"
       JAVA_XMS: "${JAVA_XMS:-2G}"
       JAVA_XMX: "${JAVA_XMX:-6G}"
+      CACHE_DIR: "/work/cache"
+      SERVER_DIR: "/work/server"
     volumes:
       - ./out:/work/out
-      - ./cache/server:/work/server
+      - gtnh_zip_cache:/work/cache
+      - gtnh_server_work:/work/server
       - dumper_out:/dumper:ro
 
 volumes:
   dumper_out:
   gradle_cache:
+  gtnh_zip_cache:
+  gtnh_server_work:

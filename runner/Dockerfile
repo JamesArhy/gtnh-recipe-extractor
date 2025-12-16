@@ -1,7 +1,7 @@
-FROM eclipse-temurin:8-jre
+FROM eclipse-temurin:25-jre
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl unzip bash coreutils \
+    ca-certificates curl unzip bash coreutils file \
     python3 python3-venv \
  && rm -rf /var/lib/apt/lists/*
 

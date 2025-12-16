@@ -10,19 +10,44 @@ JAVA_XMX="${JAVA_XMX:-6G}"
 DUMP_PATH_REL="${DUMP_PATH_REL:-config/recipedumper/recipes.json}"
 DUMP_TIMEOUT_SEC="${DUMP_TIMEOUT_SEC:-2400}"     # 40 min
 FORCE_KILL_AFTER_SEC="${FORCE_KILL_AFTER_SEC:-60}"
-SERVER_DIR="${SERVER_DIR:-/work/server}"
-SERVER_ZIP="${SERVER_ZIP:-$SERVER_DIR/server.zip}"
 
-mkdir -p "$SERVER_DIR" "$OUT_DIR"
+# ---- Paths / caching ----
+SERVER_DIR="${SERVER_DIR:-/work/server}"          # extracted server
+CACHE_DIR="${CACHE_DIR:-/work/cache}"             # cached downloads
+mkdir -p "$SERVER_DIR" "$CACHE_DIR" "$OUT_DIR"
 
-echo "==> Downloading GTNH server zip..."
-curl -L --fail -o "$SERVER_ZIP" "$GTNH_SERVER_ZIP_URL"
+# Cache zip keyed by URL so different versions don't collide
+URL_SHA="$(printf '%s' "$GTNH_SERVER_ZIP_URL" | sha256sum | awk '{print $1}')"
+SERVER_ZIP="${SERVER_ZIP:-$CACHE_DIR/server-${URL_SHA}.zip}"
 
+echo "==> Using cached zip: $SERVER_ZIP"
+
+# ---- Download (only if missing) ----
+if [ -f "$SERVER_ZIP" ]; then
+  echo "==> Zip already cached; skipping download."
+else
+  echo "==> Downloading GTNH server zip (first time)..."
+  TMP_ZIP="${SERVER_ZIP}.tmp"
+  curl -L --fail --retry 3 --retry-delay 2 -o "$TMP_ZIP" "$GTNH_SERVER_ZIP_URL"
+  mv -f "$TMP_ZIP" "$SERVER_ZIP"
+fi
+
+# Optional: verify it’s a zip (catches HTML/CDN error pages)
+if ! file "$SERVER_ZIP" | grep -qi 'zip archive'; then
+  echo "ERROR: cached file is not a zip: $SERVER_ZIP"
+  head -c 200 "$SERVER_ZIP" || true
+  exit 3
+fi
+
+# ---- Unpack fresh each run (but don’t delete the cached zip) ----
 echo "==> Unzipping server..."
-find "$SERVER_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+rm -rf "$SERVER_DIR"/*
 unzip -oq "$SERVER_ZIP" -d "$SERVER_DIR"
 
 cd "$SERVER_DIR"
+
+echo "==> Server dir contents:"
+ls -la
 
 # Normalize if zip unpacks into a single folder
 TOP_COUNT="$(find . -maxdepth 1 -type d -not -name '.' | wc -l | tr -d ' ')"
@@ -56,24 +81,29 @@ if [ -f "$DUMP_ABS" ]; then
   exit 0
 fi
 
-# Pick a launch command
 SERVER_CMD=""
-if [ -f "./startserver.sh" ]; then
+if [ -f "./startserver-java9.sh" ]; then
+  chmod +x ./startserver-java9.sh
+  SERVER_CMD="./startserver-java9.sh"
+elif [ -f "./startserver.sh" ]; then
   chmod +x ./startserver.sh
   SERVER_CMD="./startserver.sh"
 elif [ -f "./ServerStart.sh" ]; then
   chmod +x ./ServerStart.sh
   SERVER_CMD="./ServerStart.sh"
-elif ls *forge*.jar >/dev/null 2>&1; then
-  JAR="$(ls -S *forge*.jar | head -n1)"
-  SERVER_CMD="java -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
-elif ls *.jar >/dev/null 2>&1; then
-  JAR="$(ls -S *.jar | head -n1)"
-  SERVER_CMD="java -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
 else
-  echo "ERROR: couldn't find start script or jar"
-  ls -la
-  exit 2
+  RFB_LOADER="-Djava.system.class.loader=com.gtnewhorizons.retrofuturabootstrap.RfbSystemClassLoader"
+  if ls *forge*.jar >/dev/null 2>&1; then
+    JAR="$(ls -S *forge*.jar | head -n1)"
+    SERVER_CMD="java ${RFB_LOADER} -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
+  elif ls *.jar >/dev/null 2>&1; then
+    JAR="$(ls -S *.jar | head -n1)"
+    SERVER_CMD="java ${RFB_LOADER} -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
+  else
+    echo "ERROR: couldn't find start script or jar"
+    ls -la
+    exit 2
+  fi
 fi
 
 echo "==> Starting server: $SERVER_CMD"
@@ -114,7 +144,7 @@ if [ -f "$DUMP_ABS" ]; then
   RAW_JSON_PATH="$DUMP_ABS" PARQUET_OUT_DIR="$OUT_DIR/parquet" python /convert_to_parquet.py
 
   # Optional: remove raw json from out to keep artifacts lean
-  rm -f "$OUT_ABS" || true
+  #rm -f "$OUT_ABS" || true
 else
   echo "==> Dump missing. Copying logs for debugging..."
   find . -maxdepth 3 -type f \( -name "latest.log" -o -name "*.log" \) -print0 \

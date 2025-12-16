@@ -5,11 +5,9 @@ import com.google.gson.GsonBuilder;
 import com.jamesarhy.gtnh.recipedumper.gt.GTReflectionDump;
 
 import cpw.mods.fml.common.Mod;
-import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartedEvent;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
 import net.minecraft.server.MinecraftServer;
 
@@ -42,10 +40,10 @@ public class RecipeDumperMod {
 
     @Mod.EventHandler
     public void init(FMLInitializationEvent e) {
-        FMLCommonHandler.instance().bus().register(this);
+        // no-op (do not register on EventBus)
     }
 
-    @SubscribeEvent
+    @Mod.EventHandler
     public void onServerStarted(FMLServerStartedEvent e) {
         if (outFile.exists() && outFile.length() > 0) {
             System.out.println("[" + MODID + "] recipes.json already exists; skipping");
