@@ -80,7 +80,22 @@ public final class GTReflectionDump {
             r.durationTicks = asInt(getAny(rObj, new String[] {"mDuration", "duration", "durationTicks"}));
             r.eut = asInt(getAny(rObj, new String[] {"mEUt", "EUt", "eut", "mEU"}));
 
+            addPowerDerivedFields(r);
+
+            r.specialValue = asInteger(getAny(rObj, new String[] {"mSpecialValue", "mSpecial", "specialValue"}));
+
+            // Interpret specialValue for EBF recipes
+            if (machineId != null && machineId.indexOf("blastfurnace") >= 0) {
+                // In GTNH/GT5u-style, blast furnace temperature is typically stored here.
+                if (r.specialValue != null && r.specialValue.intValue() > 0) {
+                    r.ebfTemp = r.specialValue;
+                }
+            }
+
             r.itemInputs = dumpItemStacks(getAny(rObj, new String[] {"mInputs", "inputs", "mInput"}));
+
+            extractGhostCircuit(r);
+
             r.itemOutputs = dumpItemStacks(getAny(rObj, new String[] {"mOutputs", "outputs", "mOutput"}));
 
             r.fluidInputs = dumpFluids(getAny(rObj, new String[] {"mFluidInputs", "fluidInputs", "mFluidInput"}));
@@ -119,6 +134,32 @@ public final class GTReflectionDump {
         if (f instanceof String && ((String) f).length() > 0) return (String) f;
 
         return fallbackFieldName;
+    }
+
+    private static void extractGhostCircuit(DumpRecipe r) {
+        if (r.itemInputs == null) return;
+
+        for (int i = 0; i < r.itemInputs.size(); i++) {
+            DumpItemStack in = (DumpItemStack) r.itemInputs.get(i);
+            if (in == null || in.id == null) continue;
+
+            // GTNH typically: item:gregtech:gt.integrated_circuit
+            // Be tolerant: match by substring.
+            boolean isCircuit = (in.id.indexOf("integrated_circuit") >= 0)
+                    || (in.id.indexOf("programmed") >= 0 && in.id.indexOf("circuit") >= 0);
+
+            if (!isCircuit) continue;
+
+            // Many GT recipes store it as a ghost with count==0.
+            // Even if count>0, treat it as config input (you can decide later).
+            r.circuitConfig = new Integer(in.meta);
+            r.circuitGhost = (in.count == 0) ? Boolean.TRUE : Boolean.FALSE;
+
+            // Optional: remove it from itemInputs so your "real inputs" are clean
+            // If you prefer to keep it, comment this out.
+            r.itemInputs.remove(i);
+            return;
+        }
     }
 
     /* ---------- Recipe list extraction ---------- */
@@ -235,6 +276,10 @@ public final class GTReflectionDump {
         return (o instanceof Number) ? ((Number) o).intValue() : 0;
     }
 
+    private static Integer asInteger(Object o) {
+        return (o instanceof Number) ? new Integer(((Number) o).intValue()) : null;
+    }
+
     private static int[] asIntArray(Object o) {
         return (o instanceof int[]) ? (int[]) o : null;
     }
@@ -259,6 +304,44 @@ public final class GTReflectionDump {
         return "gt:" + machineId + ":" + Integer.toHexString(base.hashCode());
     }
 
+    private static void addPowerDerivedFields(DumpRecipe r) {
+        int eut = r.eut;
+        if (eut <= 0) return;
+
+        Tier t = minTierForEUt(eut);
+        if (t == null) return;
+
+        r.minTier = t.name;
+        r.minVoltage = new Integer(t.voltage);
+        r.ampsAtMinTier = new Integer((eut + t.voltage - 1) / t.voltage); // ceil
+    }
+
+    private static final class Tier {
+        final String name;
+        final int voltage;
+        Tier(String name, int voltage) { this.name = name; this.voltage = voltage; }
+    }
+
+    private static Tier minTierForEUt(int eut) {
+        // Classic GT tiers (amps separate); adjust if your GTNH uses different caps.
+        Tier[] tiers = new Tier[] {
+                new Tier("ULV", 8),
+                new Tier("LV", 32),
+                new Tier("MV", 128),
+                new Tier("HV", 512),
+                new Tier("EV", 2048),
+                new Tier("IV", 8192),
+                new Tier("LuV", 32768),
+                new Tier("ZPM", 131072),
+                new Tier("UV", 524288),
+                new Tier("UHV", 2097152),
+        };
+        for (int i = 0; i < tiers.length; i++) {
+            if (eut <= tiers[i].voltage) return tiers[i];
+        }
+        return tiers[tiers.length - 1];
+    }
+
     /* ---------- JSON root + data classes ---------- */
 
     public static final class DumpRoot {
@@ -280,8 +363,15 @@ public final class GTReflectionDump {
         public String rid;
         public String machineId;
         public String recipeClass;
+        public String minTier;    // "ULV", "LV", etc.
         public int durationTicks;
         public int eut;
+        public Integer specialValue;  // raw GT "special" (EBF temp, etc)
+        public Integer ebfTemp;       // if applicable (blast furnace)
+        public Integer circuitConfig; // ghost circuit meta
+        public Integer minVoltage;    // numeric voltage cap for that tier
+        public Integer ampsAtMinTier; // ceil (eut/minVoltage)
+        public Boolean circuitGhost;
         public List itemInputs;   // List<DumpItemStack>
         public List itemOutputs;  // List<DumpItemStack>
         public List fluidInputs;  // List<DumpFluidStack>
