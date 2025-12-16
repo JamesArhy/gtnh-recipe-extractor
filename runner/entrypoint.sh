@@ -4,23 +4,25 @@ set -euo pipefail
 : "${GTNH_SERVER_ZIP_URL:?Set GTNH_SERVER_ZIP_URL to a direct GTNH server zip URL}"
 : "${DUMPER_JAR_PATH:=/dumper/RecipeDumper.jar}"
 
-SERVER_DIR="${SERVER_DIR:-/work/server}"
 OUT_DIR="${OUT_DIR:-/work/out}"
 JAVA_XMS="${JAVA_XMS:-2G}"
 JAVA_XMX="${JAVA_XMX:-6G}"
 DUMP_PATH_REL="${DUMP_PATH_REL:-config/recipedumper/recipes.json}"
 DUMP_TIMEOUT_SEC="${DUMP_TIMEOUT_SEC:-2400}"     # 40 min
 FORCE_KILL_AFTER_SEC="${FORCE_KILL_AFTER_SEC:-60}"
+SERVER_DIR="${SERVER_DIR:-/work/server}"
+SERVER_ZIP="${SERVER_ZIP:-$SERVER_DIR/server.zip}"
 
 mkdir -p "$SERVER_DIR" "$OUT_DIR"
-cd "$SERVER_DIR"
 
 echo "==> Downloading GTNH server zip..."
-curl -L --fail -o server.zip "$GTNH_SERVER_ZIP_URL"
+curl -L --fail -o "$SERVER_ZIP" "$GTNH_SERVER_ZIP_URL"
 
 echo "==> Unzipping server..."
-unzip -q server.zip
-rm -f server.zip
+find "$SERVER_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+unzip -oq "$SERVER_ZIP" -d "$SERVER_DIR"
+
+cd "$SERVER_DIR"
 
 # Normalize if zip unpacks into a single folder
 TOP_COUNT="$(find . -maxdepth 1 -type d -not -name '.' | wc -l | tr -d ' ')"
@@ -109,7 +111,7 @@ if [ -f "$DUMP_ABS" ]; then
   echo "==> Copied dump to $OUT_ABS"
 
   echo "==> Converting raw dump to Parquet..."
-  RAW_JSON_PATH="$DUMP_ABS" PARQUET_OUT_DIR="$OUT_DIR/parquet" python3 /convert_to_parquet.py
+  RAW_JSON_PATH="$DUMP_ABS" PARQUET_OUT_DIR="$OUT_DIR/parquet" python /convert_to_parquet.py
 
   # Optional: remove raw json from out to keep artifacts lean
   rm -f "$OUT_ABS" || true

@@ -2,11 +2,15 @@ FROM eclipse-temurin:8-jre
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip bash coreutils \
-    python3 python3-pip \
+    python3 python3-venv \
  && rm -rf /var/lib/apt/lists/*
 
-# PyArrow wheels exist for manylinux; this is the easiest path.
-RUN pip3 install --no-cache-dir pyarrow pandas
+# Create a venv and install deps there
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir pyarrow pandas
 
 WORKDIR /work
 

@@ -1,29 +1,29 @@
-package com.jamie.gtnh.recipedumper.gt;
+package com.jamesarhy.gtnh.recipedumper.gt;
 
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.fluids.FluidStack;
 
 import java.lang.reflect.*;
-import java.security.MessageDigest;
 import java.util.*;
 
 public final class GTReflectionDump {
 
-    // Try likely classnames. You can add more as you observe them in logs.
     private static final String[] RECIPE_MAPS_CANDIDATES = new String[] {
             "gregtech.api.recipe.RecipeMaps"
     };
 
     public static List<DumpRecipeMap> dumpAllRecipeMaps() {
-        Class<?> mapsClass = loadFirst(RECIPE_MAPS_CANDIDATES);
+        Class mapsClass = loadFirst(RECIPE_MAPS_CANDIDATES);
         if (mapsClass == null) {
-            System.out.println("[recipedumper] Could not find gregtech RecipeMaps class. Is GregTech loaded?");
+            System.out.println("[recipedumper] GregTech RecipeMaps not found");
             return Collections.emptyList();
         }
 
-        List<DumpRecipeMap> out = new ArrayList<>();
+        List out = new ArrayList(); // List<DumpRecipeMap>
 
-        for (Field f : mapsClass.getDeclaredFields()) {
+        Field[] fields = mapsClass.getDeclaredFields();
+        for (int i = 0; i < fields.length; i++) {
+            Field f = fields[i];
             try {
                 if (!Modifier.isStatic(f.getModifiers())) continue;
                 f.setAccessible(true);
@@ -32,35 +32,43 @@ public final class GTReflectionDump {
                 if (mapObj == null) continue;
 
                 String cn = mapObj.getClass().getName();
-                if (!cn.contains("RecipeMap") && !cn.contains("GT_Recipe_Map")) continue;
+                if (cn.indexOf("RecipeMap") < 0 && cn.indexOf("GT_Recipe_Map") < 0) continue;
 
-                DumpRecipeMap m = new DumpRecipeMap();
-                m.declaringField = mapsClass.getName() + "." + f.getName();
-                m.machineId = bestMachineId(mapObj, f.getName());
-                m.displayName = bestDisplayName(mapObj, f.getName());
+                DumpRecipeMap map = new DumpRecipeMap();
+                map.declaringField = mapsClass.getName() + "." + f.getName();
+                map.machineId = bestMachineId(mapObj, f.getName());
+                map.displayName = bestDisplayName(mapObj, f.getName());
 
-                Collection<?> recipes = getRecipesFromMap(mapObj);
-                m.recipeCount = recipes.size();
-                m.recipes = new ArrayList<>(recipes.size());
+                Collection recipes = getRecipesFromMap(mapObj);
+                map.recipeCount = recipes.size();
+                map.recipes = new ArrayList(); // List<DumpRecipe>
 
-                int i = 0;
-                for (Object rObj : recipes) {
-                    DumpRecipe r = dumpRecipe(rObj, m.machineId);
-                    if (r != null) m.recipes.add(r);
-                    if (++i % 5000 == 0) {
-                        System.out.println("[recipedumper] " + m.machineId + " dumped " + i + " recipes...");
-                    }
+                Iterator it = recipes.iterator();
+                while (it.hasNext()) {
+                    Object rObj = it.next();
+                    DumpRecipe r = dumpRecipe(rObj, map.machineId);
+                    if (r != null) map.recipes.add(r);
                 }
 
-                out.add(m);
+                out.add(map);
+
             } catch (Throwable t) {
-                System.out.println("[recipedumper] Failed map field: " + f.getName() + " err=" + t);
+                System.out.println("[recipedumper] Failed map " + f.getName() + ": " + t);
             }
         }
 
-        // Sort maps for stable output
-        out.sort(Comparator.comparing(a -> a.machineId == null ? "" : a.machineId));
-        return out;
+        Collections.sort(out, new Comparator() {
+            public int compare(Object oa, Object ob) {
+                DumpRecipeMap a = (DumpRecipeMap) oa;
+                DumpRecipeMap b = (DumpRecipeMap) ob;
+                String am = (a == null || a.machineId == null) ? "" : a.machineId;
+                String bm = (b == null || b.machineId == null) ? "" : b.machineId;
+                return am.compareTo(bm);
+            }
+        });
+
+        //noinspection unchecked
+        return (List<DumpRecipeMap>) out;
     }
 
     private static DumpRecipe dumpRecipe(Object rObj, String machineId) {
@@ -69,125 +77,107 @@ public final class GTReflectionDump {
             r.machineId = machineId;
             r.recipeClass = rObj.getClass().getName();
 
-            r.durationTicks = asInt(getAny(rObj, "mDuration", "duration", "durationTicks"));
-            r.eut = asInt(getAny(rObj, "mEUt", "EUt", "eut", "mEU"));
+            r.durationTicks = asInt(getAny(rObj, new String[] {"mDuration", "duration", "durationTicks"}));
+            r.eut = asInt(getAny(rObj, new String[] {"mEUt", "EUt", "eut", "mEU"}));
 
-            r.itemInputs = dumpItemStacks(getAny(rObj, "mInputs", "inputs", "mInput"));
-            r.itemOutputs = dumpItemStacks(getAny(rObj, "mOutputs", "outputs", "mOutput"));
+            r.itemInputs = dumpItemStacks(getAny(rObj, new String[] {"mInputs", "inputs", "mInput"}));
+            r.itemOutputs = dumpItemStacks(getAny(rObj, new String[] {"mOutputs", "outputs", "mOutput"}));
 
-            r.fluidInputs = dumpFluids(getAny(rObj, "mFluidInputs", "fluidInputs", "mFluidInput"));
-            r.fluidOutputs = dumpFluids(getAny(rObj, "mFluidOutputs", "fluidOutputs", "mFluidOutput"));
+            r.fluidInputs = dumpFluids(getAny(rObj, new String[] {"mFluidInputs", "fluidInputs", "mFluidInput"}));
+            r.fluidOutputs = dumpFluids(getAny(rObj, new String[] {"mFluidOutputs", "fluidOutputs", "mFluidOutput"}));
 
-            int[] chances = asIntArray(getAny(rObj, "mChances", "outputChances", "chances"));
+            int[] chances = asIntArray(getAny(rObj, new String[] {"mChances", "chances", "outputChances"}));
             if (chances != null) {
-                r.outputChances = toList(chances);
+                r.outputChances = toIntList(chances);
                 r.chanceScale = guessChanceScale(chances);
             }
 
             r.rid = stableRid(machineId, r);
-
             return r;
         } catch (Throwable t) {
-            // Don’t kill the run if a single recipe fails
             return null;
         }
     }
 
-    // ---------- Map identity (NEI-like “tab name”) ----------
+    /* ---------- Map identity (NEI-like) ---------- */
 
     private static String bestMachineId(Object mapObj, String fallbackFieldName) {
-        Object id = tryInvokeAny(mapObj, "getUnlocalizedName", "getName", "getID");
-        if (id instanceof String && !((String) id).trim().isEmpty()) return (String) id;
+        Object s = tryInvokeAny(mapObj, new String[] {"getUnlocalizedName", "getName", "getID"});
+        if (s instanceof String && ((String) s).length() > 0) return (String) s;
 
-        Object nameField = getAny(mapObj, "mUnlocalizedName", "mName", "mNEIName", "unlocalizedName", "name");
-        if (nameField instanceof String && !((String) nameField).trim().isEmpty()) return (String) nameField;
+        Object f = getAny(mapObj, new String[] {"mUnlocalizedName", "mName", "mNEIName", "unlocalizedName", "name"});
+        if (f instanceof String && ((String) f).length() > 0) return (String) f;
 
         return "gt.map." + fallbackFieldName;
     }
 
     private static String bestDisplayName(Object mapObj, String fallbackFieldName) {
-        Object dn = tryInvokeAny(mapObj, "getLocalizedName", "getDisplayName");
-        if (dn instanceof String && !((String) dn).trim().isEmpty()) return (String) dn;
+        Object s = tryInvokeAny(mapObj, new String[] {"getLocalizedName", "getDisplayName"});
+        if (s instanceof String && ((String) s).length() > 0) return (String) s;
 
-        Object nameField = getAny(mapObj, "mNEIName", "mName", "displayName", "name");
-        if (nameField instanceof String && !((String) nameField).trim().isEmpty()) return (String) nameField;
+        Object f = getAny(mapObj, new String[] {"mNEIName", "mName", "displayName", "name"});
+        if (f instanceof String && ((String) f).length() > 0) return (String) f;
 
         return fallbackFieldName;
     }
 
-    // ---------- Recipe list extraction ----------
+    /* ---------- Recipe list extraction ---------- */
 
-    private static Collection<?> getRecipesFromMap(Object mapObj) {
-        Object viaMethod = tryInvokeAny(mapObj, "getAllRecipes", "getRecipes", "getRecipeList", "values");
-        if (viaMethod instanceof Map) return ((Map<?, ?>) viaMethod).values();
-        if (viaMethod instanceof Collection) return (Collection<?>) viaMethod;
+    private static Collection getRecipesFromMap(Object mapObj) {
+        Object v = tryInvokeAny(mapObj, new String[] {"getAllRecipes", "getRecipes", "getRecipeList", "values"});
+        if (v instanceof Map) return ((Map) v).values();
+        if (v instanceof Collection) return (Collection) v;
 
-        // Field fallback: pick first Map/Collection that looks plausible
-        for (Field f : mapObj.getClass().getDeclaredFields()) {
+        Field[] fs = mapObj.getClass().getDeclaredFields();
+        for (int i = 0; i < fs.length; i++) {
             try {
-                f.setAccessible(true);
-                Object v = f.get(mapObj);
-                if (v instanceof Map) return ((Map<?, ?>) v).values();
-                if (v instanceof Collection) return (Collection<?>) v;
+                fs[i].setAccessible(true);
+                Object o = fs[i].get(mapObj);
+                if (o instanceof Map) return ((Map) o).values();
+                if (o instanceof Collection) return (Collection) o;
             } catch (Throwable ignored) {}
         }
         return Collections.emptyList();
     }
 
-    // ---------- Stack dumping ----------
+    /* ---------- Stack dumping ---------- */
 
-    private static List<DumpItemStack> dumpItemStacks(Object v) {
-        List<DumpItemStack> out = new ArrayList<>();
+    private static List dumpItemStacks(Object v) {
+        List out = new ArrayList(); // List<DumpItemStack>
         if (v == null) return out;
 
         if (v instanceof ItemStack[]) {
-            for (ItemStack st : (ItemStack[]) v) addItem(out, st);
-            return out;
-        }
-        if (v instanceof List) {
-            for (Object o : (List<?>) v) {
-                if (o instanceof ItemStack) addItem(out, (ItemStack) o);
-                // If GT uses “alternative ingredient lists”, you can extend here later.
-            }
-            return out;
-        }
-        if (v instanceof ItemStack) {
+            ItemStack[] arr = (ItemStack[]) v;
+            for (int i = 0; i < arr.length; i++) addItem(out, arr[i]);
+        } else if (v instanceof ItemStack) {
             addItem(out, (ItemStack) v);
         }
         return out;
     }
 
-    private static void addItem(List<DumpItemStack> out, ItemStack st) {
+    private static void addItem(List out, ItemStack st) {
         if (st == null) return;
         DumpItemStack d = new DumpItemStack();
         d.id = itemKey(st);
         d.count = st.stackSize;
         d.meta = st.getItemDamage();
-        // NBT intentionally omitted for now; you can add hash later if needed.
         out.add(d);
     }
 
-    private static List<DumpFluidStack> dumpFluids(Object v) {
-        List<DumpFluidStack> out = new ArrayList<>();
+    private static List dumpFluids(Object v) {
+        List out = new ArrayList(); // List<DumpFluidStack>
         if (v == null) return out;
 
         if (v instanceof FluidStack[]) {
-            for (FluidStack fs : (FluidStack[]) v) addFluid(out, fs);
-            return out;
-        }
-        if (v instanceof List) {
-            for (Object o : (List<?>) v) {
-                if (o instanceof FluidStack) addFluid(out, (FluidStack) o);
-            }
-            return out;
-        }
-        if (v instanceof FluidStack) {
+            FluidStack[] arr = (FluidStack[]) v;
+            for (int i = 0; i < arr.length; i++) addFluid(out, arr[i]);
+        } else if (v instanceof FluidStack) {
             addFluid(out, (FluidStack) v);
         }
         return out;
     }
 
-    private static void addFluid(List<DumpFluidStack> out, FluidStack fs) {
+    private static void addFluid(List out, FluidStack fs) {
         if (fs == null || fs.getFluid() == null) return;
         DumpFluidStack d = new DumpFluidStack();
         d.id = "fluid:" + fs.getFluid().getName();
@@ -198,51 +188,42 @@ public final class GTReflectionDump {
     private static String itemKey(ItemStack st) {
         try {
             String name = net.minecraft.item.Item.itemRegistry.getNameForObject(st.getItem());
-            if (name == null) name = "unknown";
-            return "item:" + name;
+            return "item:" + (name == null ? "unknown" : name);
         } catch (Throwable t) {
             return "item:unknown";
         }
     }
 
-    // ---------- Reflection helpers ----------
+    /* ---------- Reflection helpers ---------- */
 
-    private static Class<?> loadFirst(String[] candidates) {
-        for (String cn : candidates) {
+    private static Class loadFirst(String[] names) {
+        for (int i = 0; i < names.length; i++) {
             try {
-                return Class.forName(cn);
+                return Class.forName(names[i]);
             } catch (Throwable ignored) {}
         }
         return null;
     }
 
-    private static Object tryInvokeAny(Object target, String... names) {
-        for (String n : names) {
+    private static Object tryInvokeAny(Object o, String[] names) {
+        for (int i = 0; i < names.length; i++) {
             try {
-                Method m = target.getClass().getMethod(n);
+                Method m = o.getClass().getMethod(names[i], new Class[0]);
                 m.setAccessible(true);
-                return m.invoke(target);
+                return m.invoke(o, new Object[0]);
             } catch (Throwable ignored) {}
         }
         return null;
     }
 
-    private static Object getAny(Object target, String... fieldNames) {
-        for (String n : fieldNames) {
-            try {
-                Field f = target.getClass().getDeclaredField(n);
-                f.setAccessible(true);
-                return f.get(target);
-            } catch (Throwable ignored) {}
-        }
-        // Walk superclasses too
-        Class<?> c = target.getClass().getSuperclass();
-        while (c != null && c != Object.class) {
-            for (String n : fieldNames) {
+    private static Object getAny(Object o, String[] names) {
+        Class c = o.getClass();
+        while (c != null) {
+            for (int i = 0; i < names.length; i++) {
                 try {
-                    Field f = c.getDeclaredField(n);
+                    Field f = c.getDeclaredField(names[i]);
                     f.setAccessible(true);
-                    return f.get(target);
+                    return f.get(o);
                 } catch (Throwable ignored) {}
             }
             c = c.getSuperclass();
@@ -250,65 +231,41 @@ public final class GTReflectionDump {
         return null;
     }
 
-    private static int asInt(Object v) {
-        if (v instanceof Integer) return (Integer) v;
-        if (v instanceof Short) return ((Short) v).intValue();
-        if (v instanceof Long) return ((Long) v).intValue();
-        if (v instanceof Byte) return ((Byte) v).intValue();
-        return 0;
+    private static int asInt(Object o) {
+        return (o instanceof Number) ? ((Number) o).intValue() : 0;
     }
 
-    private static int[] asIntArray(Object v) {
-        if (v instanceof int[]) return (int[]) v;
-        return null;
+    private static int[] asIntArray(Object o) {
+        return (o instanceof int[]) ? (int[]) o : null;
     }
 
-    private static List<Integer> toList(int[] a) {
-        List<Integer> out = new ArrayList<>(a.length);
-        for (int x : a) out.add(x);
+    private static List toIntList(int[] a) {
+        List out = new ArrayList(); // List<Integer>
+        for (int i = 0; i < a.length; i++) out.add(new Integer(a[i]));
         return out;
     }
 
-    private static Integer guessChanceScale(int[] chances) {
-        // Heuristic: if values look like 0..10000, use 10000. Otherwise null.
+    private static Integer guessChanceScale(int[] a) {
         int max = 0;
-        for (int c : chances) if (c > max) max = c;
-        if (max <= 10000) return 10000;
-        if (max <= 100000) return 100000;
+        for (int i = 0; i < a.length; i++) if (a[i] > max) max = a[i];
+        if (max <= 10000) return new Integer(10000);
+        if (max <= 100000) return new Integer(100000);
         return null;
     }
 
     private static String stableRid(String machineId, DumpRecipe r) {
-        // Hash a stable string: machine + duration + eut + stacks
-        StringBuilder sb = new StringBuilder();
-        sb.append(machineId).append("|").append(r.durationTicks).append("|").append(r.eut).append("|");
-        for (DumpItemStack s : r.itemInputs) sb.append("in:").append(s.id).append(":").append(s.meta).append(":").append(s.count).append(";");
-        for (DumpFluidStack s : r.fluidInputs) sb.append("fin:").append(s.id).append(":").append(s.mb).append(";");
-        for (DumpItemStack s : r.itemOutputs) sb.append("out:").append(s.id).append(":").append(s.meta).append(":").append(s.count).append(";");
-        for (DumpFluidStack s : r.fluidOutputs) sb.append("fout:").append(s.id).append(":").append(s.mb).append(";");
-
-        return "gt:" + machineId + ":" + sha1(sb.toString()).substring(0, 12);
+        // Simple stable id. You can swap this to a real hash later.
+        String base = machineId + "|" + r.durationTicks + "|" + r.eut + "|" + r.recipeClass;
+        return "gt:" + machineId + ":" + Integer.toHexString(base.hashCode());
     }
 
-    private static String sha1(String s) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
-            byte[] b = md.digest(s.getBytes("UTF-8"));
-            StringBuilder out = new StringBuilder();
-            for (byte x : b) out.append(String.format("%02x", x));
-            return out.toString();
-        } catch (Throwable t) {
-            return Integer.toHexString(s.hashCode());
-        }
-    }
-
-    // ---------- JSON structs ----------
+    /* ---------- JSON root + data classes ---------- */
 
     public static final class DumpRoot {
         public String generatedAt;
         public String minecraft;
         public String mod;
-        public List<DumpRecipeMap> recipeMaps;
+        public List recipeMaps; // List<DumpRecipeMap>
     }
 
     public static final class DumpRecipeMap {
@@ -316,7 +273,7 @@ public final class GTReflectionDump {
         public String displayName;
         public String declaringField;
         public int recipeCount;
-        public List<DumpRecipe> recipes;
+        public List recipes; // List<DumpRecipe>
     }
 
     public static final class DumpRecipe {
@@ -325,22 +282,22 @@ public final class GTReflectionDump {
         public String recipeClass;
         public int durationTicks;
         public int eut;
-        public List<DumpItemStack> itemInputs = new ArrayList<>();
-        public List<DumpFluidStack> fluidInputs = new ArrayList<>();
-        public List<DumpItemStack> itemOutputs = new ArrayList<>();
-        public List<DumpFluidStack> fluidOutputs = new ArrayList<>();
-        public List<Integer> outputChances;
+        public List itemInputs;   // List<DumpItemStack>
+        public List itemOutputs;  // List<DumpItemStack>
+        public List fluidInputs;  // List<DumpFluidStack>
+        public List fluidOutputs; // List<DumpFluidStack>
+        public List outputChances; // List<Integer>
         public Integer chanceScale;
     }
 
     public static final class DumpItemStack {
-        public String id;   // "item:modid:name"
+        public String id;
         public int count;
         public int meta;
     }
 
     public static final class DumpFluidStack {
-        public String id;   // "fluid:name"
+        public String id;
         public int mb;
     }
 }

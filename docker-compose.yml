@@ -1,10 +1,20 @@
 services:
   mod-build:
-    build:
-      context: ./dumper-mod
-      dockerfile: Dockerfile.build
+    image: gradle:4.10.3-jdk8
+    user: "0:0"
+    working_dir: /src
     volumes:
-      - ./dumper-mod/build:/src/build
+      - ./dumper-mod:/src
+      - dumper_out:/dumper
+      - gradle_cache:/home/gradle/.gradle
+    command: >
+      bash -lc "
+        set -e;
+        gradle --no-daemon clean build;
+        ls -la /src/build/libs;
+        cp /src/build/libs/RecipeDumper-*.jar /dumper/RecipeDumper.jar;
+        ls -la /dumper
+      "
 
   gtnh-dump:
     build:
@@ -19,4 +29,8 @@ services:
     volumes:
       - ./out:/work/out
       - ./cache/server:/work/server
-      - ./dumper-mod/build/libs:/dumper:ro
+      - dumper_out:/dumper:ro
+
+volumes:
+  dumper_out:
+  gradle_cache:

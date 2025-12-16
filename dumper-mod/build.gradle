@@ -1,17 +1,21 @@
 buildscript {
     repositories {
         mavenCentral()
-        maven { url = "https://files.minecraftforge.net/maven" }
+        // old: https://files.minecraftforge.net/maven
+        maven { url = "https://maven.minecraftforge.net/" }
+        // some old FG transitive deps expect this
+        jcenter()
     }
     dependencies {
-        classpath 'net.minecraftforge.gradle:ForgeGradle:1.2-SNAPSHOT'
+        // old: net.minecraftforge.gradle:ForgeGradle:1.2-SNAPSHOT
+        classpath "com.anatawa12.forge:ForgeGradle:1.2-1.0.12"
     }
 }
 
-apply plugin: 'forge'
+apply plugin: "forge"
 
 version = "0.1.0"
-group = "com.jamesarhy.gtnh"
+group = "com.jamie.gtnh"
 archivesBaseName = "RecipeDumper"
 
 minecraft {
@@ -21,12 +25,14 @@ minecraft {
 
 repositories {
     mavenCentral()
+    jcenter()
 }
 
 dependencies {
-    implementation 'com.google.code.gson:gson:2.10.1'
+    // ForgeGradle 1.2 era uses "compile" not "implementation"
+    compile "com.google.code.gson:gson:2.10.1"
 }
 
 tasks.withType(JavaCompile) {
-    options.encoding = 'UTF-8'
+    options.encoding = "UTF-8"
 }

@@ -1,8 +1,9 @@
-package com.jamie.gtnh.recipedumper;
+package com.jamesarhy.gtnh.recipedumper;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.jamie.gtnh.recipedumper.gt.GTReflectionDump;
+import com.jamesarhy.gtnh.recipedumper.gt.GTReflectionDump;
+
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -10,16 +11,17 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartedEvent;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 
+import net.minecraft.server.MinecraftServer;
+
 import java.io.File;
 import java.io.FileWriter;
-import java.nio.file.Files;
 import java.util.Date;
 
 @Mod(
-    modid = RecipeDumperMod.MODID,
-    name = "Recipe Dumper",
-    version = "0.1.0",
-    acceptableRemoteVersions = "*"
+        modid = RecipeDumperMod.MODID,
+        name = "Recipe Dumper",
+        version = "0.1.0",
+        acceptableRemoteVersions = "*"
 )
 public class RecipeDumperMod {
     public static final String MODID = "recipedumper";
@@ -33,10 +35,9 @@ public class RecipeDumperMod {
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent e) {
-        File configDir = e.getModConfigurationDirectory();
-        File outDir = new File(configDir, MODID);
-        if (!outDir.exists()) outDir.mkdirs();
-        outFile = new File(outDir, "recipes.json");
+        File dir = new File(e.getModConfigurationDirectory(), MODID);
+        if (!dir.exists()) dir.mkdirs();
+        outFile = new File(dir, "recipes.json");
     }
 
     @Mod.EventHandler
@@ -46,42 +47,42 @@ public class RecipeDumperMod {
 
     @SubscribeEvent
     public void onServerStarted(FMLServerStartedEvent e) {
-        try {
-            if (outFile.exists() && outFile.length() > 0) {
-                log("recipes.json already exists; skipping: " + outFile.getAbsolutePath());
-                return;
-            }
+        if (outFile.exists() && outFile.length() > 0) {
+            System.out.println("[" + MODID + "] recipes.json already exists; skipping");
+            return;
+        }
 
+        try {
             GTReflectionDump.DumpRoot root = new GTReflectionDump.DumpRoot();
             root.generatedAt = new Date().toString();
             root.minecraft = "1.7.10";
-            root.mod = MODID + " 0.1.0";
-
-            log("Dumping GregTech RecipeMaps via reflection...");
+            root.mod = MODID;
             root.recipeMaps = GTReflectionDump.dumpAllRecipeMaps();
 
-            writeAtomically(outFile, GSON.toJson(root));
-            log("Wrote: " + outFile.getAbsolutePath());
+            File tmp = new File(outFile.getAbsolutePath() + ".tmp");
+            FileWriter fw = null;
+            try {
+                fw = new FileWriter(tmp);
+                fw.write(GSON.toJson(root));
+            } finally {
+                if (fw != null) {
+                    try { fw.close(); } catch (Exception ignored) {}
+                }
+            }
 
-            // Make the CI run exit once we’re done
-            e.getServer().initiateShutdown();
+            if (outFile.exists()) outFile.delete();
+            tmp.renameTo(outFile);
+
+            System.out.println("[" + MODID + "] wrote " + outFile.getAbsolutePath());
+
+            // Shut down server so CI/docker can finish.
+            MinecraftServer srv = MinecraftServer.getServer();
+            if (srv != null) {
+                srv.initiateShutdown();
+            }
 
         } catch (Throwable t) {
             t.printStackTrace();
-            log("ERROR: " + t.getMessage());
         }
-    }
-
-    private void writeAtomically(File file, String content) throws Exception {
-        File tmp = new File(file.getAbsolutePath() + ".tmp");
-        try (FileWriter fw = new FileWriter(tmp)) {
-            fw.write(content);
-        }
-        if (file.exists()) file.delete();
-        Files.move(tmp.toPath(), file.toPath());
-    }
-
-    private void log(String msg) {
-        System.out.println("[" + MODID + "] " + msg);
     }
 }
