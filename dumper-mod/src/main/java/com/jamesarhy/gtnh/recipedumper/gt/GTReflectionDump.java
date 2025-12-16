@@ -202,7 +202,31 @@ public final class GTReflectionDump {
         d.id = itemKey(st);
         d.count = st.stackSize;
         d.meta = st.getItemDamage();
+        d.displayName = safeDisplayName(st);       // <--- key
+        d.unlocalizedName = safeUnlocName(st);     // optional
+        d.oreDict = oreDictNames(st);              // next section
         out.add(d);
+    }
+
+    private static String safeDisplayName(ItemStack st) {
+        try { return st.getDisplayName(); } catch (Throwable t) { return null; }
+    }
+    private static String safeUnlocName(ItemStack st) {
+        try { return st.getUnlocalizedName(); } catch (Throwable t) { return null; }
+    }
+
+    private static List oreDictNames(ItemStack st) {
+        try {
+            int[] ids = net.minecraftforge.oredict.OreDictionary.getOreIDs(st);
+            if (ids == null || ids.length == 0) return null;
+            List out = new ArrayList();
+            for (int i = 0; i < ids.length; i++) {
+                out.add(net.minecraftforge.oredict.OreDictionary.getOreName(ids[i]));
+            }
+            return out;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private static List dumpFluids(Object v) {
@@ -384,6 +408,9 @@ public final class GTReflectionDump {
         public String id;
         public int count;
         public int meta;
+        public String displayName;
+        public String unlocalizedName;
+        public List oreDict; // List<String>
     }
 
     public static final class DumpFluidStack {
