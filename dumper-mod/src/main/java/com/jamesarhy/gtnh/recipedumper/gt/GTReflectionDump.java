@@ -323,10 +323,100 @@ public final class GTReflectionDump {
     }
 
     private static String stableRid(String machineId, DumpRecipe r) {
-        // Simple stable id. You can swap this to a real hash later.
-        String base = machineId + "|" + r.durationTicks + "|" + r.eut + "|" + r.recipeClass;
-        return "gt:" + machineId + ":" + Integer.toHexString(base.hashCode());
+        String sig = buildSignature(machineId, r);
+        String hex = sha1Hex(sig);
+        return "gt:" + machineId + ":" + hex.substring(0, 12); // 12+ chars is plenty
     }
+
+    private static String buildSignature(String machineId, DumpRecipe r) {
+        StringBuilder sb = new StringBuilder(512);
+        sb.append("machine=").append(nullSafe(machineId));
+        sb.append("|class=").append(nullSafe(r.recipeClass));
+        sb.append("|dur=").append(r.durationTicks);
+        sb.append("|eut=").append(r.eut);
+
+        // Special / EBF
+        sb.append("|special=").append(r.specialValue != null ? r.specialValue.intValue() : 0);
+
+        // Ghost circuit (treat absent as -1 so it disambiguates cleanly)
+        int cc = (r.circuitConfig != null) ? r.circuitConfig.intValue() : -1;
+        sb.append("|circuit=").append(cc);
+
+        // Inputs/outputs (sorted canonical)
+        sb.append("|inItems=").append(canonItems(r.itemInputs));
+        sb.append("|inFluids=").append(canonFluids(r.fluidInputs));
+        sb.append("|outItems=").append(canonItems(r.itemOutputs));
+        sb.append("|outFluids=").append(canonFluids(r.fluidOutputs));
+
+        // Chances (optional, but good)
+        if (r.outputChances != null && r.outputChances.size() > 0) {
+            sb.append("|ch=").append(canonInts(r.outputChances));
+            sb.append("|chScale=").append(r.chanceScale != null ? r.chanceScale.intValue() : 0);
+        }
+
+        return sb.toString();
+    }
+
+    private static String canonItems(List items) {
+        if (items == null || items.size() == 0) return "[]";
+        List parts = new ArrayList(items.size());
+        for (int i = 0; i < items.size(); i++) {
+            DumpItemStack s = (DumpItemStack) items.get(i);
+            if (s == null) continue;
+            String id = nullSafe(s.id);
+            int meta = s.meta;
+            int cnt = s.count;
+            parts.add(id + "@" + meta + "x" + cnt);
+        }
+        Collections.sort(parts);
+        return parts.toString();
+    }
+
+    private static String canonFluids(List fluids) {
+        if (fluids == null || fluids.size() == 0) return "[]";
+        List parts = new ArrayList(fluids.size());
+        for (int i = 0; i < fluids.size(); i++) {
+            DumpFluidStack f = (DumpFluidStack) fluids.get(i);
+            if (f == null) continue;
+            parts.add(nullSafe(f.id) + "x" + f.mb);
+        }
+        Collections.sort(parts);
+        return parts.toString();
+    }
+
+    private static String canonInts(List ints) {
+        if (ints == null || ints.size() == 0) return "[]";
+        List parts = new ArrayList(ints.size());
+        for (int i = 0; i < ints.size(); i++) {
+            Object o = ints.get(i);
+            parts.add(String.valueOf(o));
+        }
+        // Don't sort chances (they correspond to outputs). If you want stable,
+        // you can keep as-is OR sort if you also sort outputs and reorder chances.
+        return parts.toString();
+    }
+
+    private static String nullSafe(String s) {
+        return (s == null) ? "" : s;
+    }
+
+    private static String sha1Hex(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            byte[] b = md.digest(s.getBytes("UTF-8"));
+            StringBuilder out = new StringBuilder(b.length * 2);
+            for (int i = 0; i < b.length; i++) {
+                int v = b[i] & 0xff;
+                if (v < 16) out.append('0');
+                out.append(Integer.toHexString(v));
+            }
+            return out.toString();
+        } catch (Throwable t) {
+            // fallback (shouldn't happen)
+            return Integer.toHexString(s.hashCode());
+        }
+    }
+
 
     private static void addPowerDerivedFields(DumpRecipe r) {
         int eut = r.eut;
