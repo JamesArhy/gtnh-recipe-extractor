@@ -1,0 +1,4 @@
+- Indicate whether a fluid is a fluid or a gas.  Water is a fluid for example, hydrogen is a gas, but liquid hydrogen is a fluid.
+- Add machine index output in parquet (if it doesn't already) giving a friendly name for each machine.  Also include a schema that shows the parallel bonuses as well as coil or other bonuses such as internal speed bonuses of gt++ multiblocks as well as efficiency bonuses.  This will be used downstream to indicate rate and energy usage.
+  - This is to give the downstream graph analysis tool insights into machine performance capabilities and enhancements.  It doesn't know a lot about the machine's performance without knowing gt++ class details from the mod
+- Found an alloy smelter recipe with a non-unique (duplicate) RID, need RID to be absolutely unique
