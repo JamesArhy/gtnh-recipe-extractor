@@ -20,7 +20,8 @@ services:
     build:
       context: ./runner
     depends_on:
-      - mod-build
+      mod-build:
+        condition: service_completed_successfully
     environment:
       GTNH_SERVER_ZIP_URL: "${GTNH_SERVER_ZIP_URL}"
       DUMPER_JAR_PATH: "/dumper/RecipeDumper.jar"

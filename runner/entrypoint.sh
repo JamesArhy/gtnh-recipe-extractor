@@ -8,6 +8,9 @@ OUT_DIR="${OUT_DIR:-/work/out}"
 JAVA_XMS="${JAVA_XMS:-2G}"
 JAVA_XMX="${JAVA_XMX:-6G}"
 DUMP_PATH_REL="${DUMP_PATH_REL:-config/recipedumper/recipes.json}"
+DUMP_MACHINE_INDEX_REL="${DUMP_MACHINE_INDEX_REL:-config/recipedumper/machine_index.json}"
+DUMP_MACHINE_INDEX_DEBUG_REL="${DUMP_MACHINE_INDEX_DEBUG_REL:-config/recipedumper/machine_index_debug.json}"
+DUMP_MACHINE_INDEX_REQUIRED="${DUMP_MACHINE_INDEX_REQUIRED:-1}"
 DUMP_TIMEOUT_SEC="${DUMP_TIMEOUT_SEC:-2400}"     # 40 min
 FORCE_KILL_AFTER_SEC="${FORCE_KILL_AFTER_SEC:-60}"
 
@@ -73,37 +76,32 @@ else
 fi
 
 DUMP_ABS="$SERVER_DIR/$DUMP_PATH_REL"
+MACHINE_INDEX_ABS="$SERVER_DIR/$DUMP_MACHINE_INDEX_REL"
+MACHINE_INDEX_DEBUG_ABS="$SERVER_DIR/$DUMP_MACHINE_INDEX_DEBUG_REL"
 OUT_ABS="$OUT_DIR/recipes.json"
+OUT_MACHINE_INDEX_ABS="$OUT_DIR/machine_index.json"
+OUT_MACHINE_INDEX_DEBUG_ABS="$OUT_DIR/machine_index_debug.json"
 
-if [ -f "$DUMP_ABS" ]; then
+if [ -f "$DUMP_ABS" ] && [ -f "$MACHINE_INDEX_ABS" ] && [ -f "$MACHINE_INDEX_DEBUG_ABS" ]; then
   echo "==> Found existing dump; copying to out/ and exiting."
   cp "$DUMP_ABS" "$OUT_ABS"
+  cp "$MACHINE_INDEX_ABS" "$OUT_MACHINE_INDEX_ABS"
+  cp "$MACHINE_INDEX_DEBUG_ABS" "$OUT_MACHINE_INDEX_DEBUG_ABS"
   exit 0
 fi
 
 SERVER_CMD=""
-if [ -f "./startserver-java9.sh" ]; then
-  chmod +x ./startserver-java9.sh
-  SERVER_CMD="./startserver-java9.sh"
-elif [ -f "./startserver.sh" ]; then
-  chmod +x ./startserver.sh
-  SERVER_CMD="./startserver.sh"
-elif [ -f "./ServerStart.sh" ]; then
-  chmod +x ./ServerStart.sh
-  SERVER_CMD="./ServerStart.sh"
+RFB_LOADER="-Djava.system.class.loader=com.gtnewhorizons.retrofuturabootstrap.RfbSystemClassLoader"
+if ls *forge*.jar >/dev/null 2>&1; then
+  JAR="$(ls -S *forge*.jar | head -n1)"
+  SERVER_CMD="java ${RFB_LOADER} -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
+elif ls *.jar >/dev/null 2>&1; then
+  JAR="$(ls -S *.jar | head -n1)"
+  SERVER_CMD="java ${RFB_LOADER} -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
 else
-  RFB_LOADER="-Djava.system.class.loader=com.gtnewhorizons.retrofuturabootstrap.RfbSystemClassLoader"
-  if ls *forge*.jar >/dev/null 2>&1; then
-    JAR="$(ls -S *forge*.jar | head -n1)"
-    SERVER_CMD="java ${RFB_LOADER} -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
-  elif ls *.jar >/dev/null 2>&1; then
-    JAR="$(ls -S *.jar | head -n1)"
-    SERVER_CMD="java ${RFB_LOADER} -Xms${JAVA_XMS} -Xmx${JAVA_XMX} -jar ${JAR} nogui"
-  else
-    echo "ERROR: couldn't find start script or jar"
-    ls -la
-    exit 2
-  fi
+  echo "ERROR: couldn't find a server jar to launch directly."
+  ls -la
+  exit 2
 fi
 
 echo "==> Starting server: $SERVER_CMD"
@@ -118,8 +116,10 @@ echo "==> Waiting for dump: $DUMP_ABS"
 
 while true; do
   if [ -f "$DUMP_ABS" ]; then
-    echo "==> Dump generated!"
-    break
+    if [ "$DUMP_MACHINE_INDEX_REQUIRED" = "0" ] || [ -f "$MACHINE_INDEX_ABS" ]; then
+      echo "==> Dump generated!"
+      break
+    fi
   fi
 
   if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
@@ -139,9 +139,17 @@ done
 if [ -f "$DUMP_ABS" ]; then
   cp "$DUMP_ABS" "$OUT_ABS"
   echo "==> Copied dump to $OUT_ABS"
+  if [ -f "$MACHINE_INDEX_ABS" ]; then
+    cp "$MACHINE_INDEX_ABS" "$OUT_MACHINE_INDEX_ABS"
+    echo "==> Copied machine index to $OUT_MACHINE_INDEX_ABS"
+  fi
+  if [ -f "$MACHINE_INDEX_DEBUG_ABS" ]; then
+    cp "$MACHINE_INDEX_DEBUG_ABS" "$OUT_MACHINE_INDEX_DEBUG_ABS"
+    echo "==> Copied machine index debug to $OUT_MACHINE_INDEX_DEBUG_ABS"
+  fi
 
   echo "==> Converting raw dump to Parquet..."
-  RAW_JSON_PATH="$DUMP_ABS" PARQUET_OUT_DIR="$OUT_DIR/parquet" python /convert_to_parquet.py
+  RAW_JSON_PATH="$DUMP_ABS" MACHINE_INDEX_JSON_PATH="$MACHINE_INDEX_ABS" PARQUET_OUT_DIR="$OUT_DIR/parquet" python /convert_to_parquet.py
 
   # Optional: remove raw json from out to keep artifacts lean
   #rm -f "$OUT_ABS" || true
