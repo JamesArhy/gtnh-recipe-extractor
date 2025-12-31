@@ -87,6 +87,8 @@ def _write_datapackage(out_dir: Path, root: dict) -> None:
                 {"name": "item_id", "type": "string", "description": "Item registry ID."},
                 {"name": "count", "type": "integer", "description": "Item count per craft."},
                 {"name": "meta", "type": "integer", "description": "Item metadata / damage value."},
+                {"name": "display_name", "type": "string", "description": "Localized item name when available."},
+                {"name": "unlocalized_name", "type": "string", "description": "Unlocalized item name when available."},
             ],
         ),
         resource(
@@ -99,6 +101,8 @@ def _write_datapackage(out_dir: Path, root: dict) -> None:
                 {"name": "count", "type": "integer", "description": "Item count per craft."},
                 {"name": "meta", "type": "integer", "description": "Item metadata / damage value."},
                 {"name": "chance", "type": "number", "description": "Chance multiplier (0-1 typical) if available."},
+                {"name": "display_name", "type": "string", "description": "Localized item name when available."},
+                {"name": "unlocalized_name", "type": "string", "description": "Unlocalized item name when available."},
             ],
         ),
         resource(
@@ -217,6 +221,8 @@ def main():
                     "item_id": s.get("id"),
                     "count": int(s.get("count") or 0),
                     "meta": int(s.get("meta") or 0),
+                    "display_name": s.get("displayName"),
+                    "unlocalized_name": s.get("unlocalizedName"),
                 })
 
             for s in (r.get("itemOutputs") or []):
@@ -226,6 +232,8 @@ def main():
                     "count": int(s.get("count") or 0),
                     "meta": int(s.get("meta") or 0),
                     "chance": float(s.get("chance")) if s.get("chance") is not None else None,
+                    "display_name": s.get("displayName"),
+                    "unlocalized_name": s.get("unlocalizedName"),
                 })
 
             for s in (r.get("fluidInputs") or []):
