@@ -23,6 +23,10 @@ public final class GTReflectionDump {
             "gregtech.api.recipe.RecipeMaps",
             "gtPlusPlus.api.recipe.GTPPRecipeMaps"
     };
+    private static final String MACHINE_ID_BLAST_FURNACE = "gt.recipe.blastfurnace";
+    private static final String META_TILE_NAME_ELECTRIC_BLAST_FURNACE = "multimachine.blastfurnace";
+    private static final String DISPLAY_NAME_ELECTRIC_BLAST_FURNACE = "Electric Blast Furnace";
+    private static final String CLASS_TOKEN_ELECTRIC_BLAST_FURNACE = "MTEElectricBlastFurnace";
     private static final String[] BONUS_DEBUG_KEYWORDS = new String[] {
             "parallel", "speed", "efficien", "coil", "bonus", "tier", "eut", "discount"
     };
@@ -674,7 +678,36 @@ public final class GTReflectionDump {
             }
         }
 
+        preferElectricBlastFurnace(out);
         return out;
+    }
+
+    private static void preferElectricBlastFurnace(List out) {
+        if (out == null) return;
+        int firstIndex = -1;
+        int preferredIndex = -1;
+        for (int i = 0; i < out.size(); i++) {
+            Object o = out.get(i);
+            if (!(o instanceof DumpMachineIndex)) continue;
+            DumpMachineIndex d = (DumpMachineIndex) o;
+            if (!MACHINE_ID_BLAST_FURNACE.equals(d.machineId)) continue;
+            if (firstIndex < 0) firstIndex = i;
+            if (preferredIndex < 0 && isElectricBlastFurnace(d)) preferredIndex = i;
+            if (firstIndex >= 0 && preferredIndex >= 0) break;
+        }
+        if (firstIndex >= 0 && preferredIndex >= 0 && preferredIndex != firstIndex) {
+            Object preferred = out.remove(preferredIndex);
+            out.add(firstIndex, preferred);
+        }
+    }
+
+    private static boolean isElectricBlastFurnace(DumpMachineIndex d) {
+        if (d == null) return false;
+        if (!MACHINE_ID_BLAST_FURNACE.equals(d.machineId)) return false;
+        if (DISPLAY_NAME_ELECTRIC_BLAST_FURNACE.equals(d.displayName)) return true;
+        if (META_TILE_NAME_ELECTRIC_BLAST_FURNACE.equals(d.metaTileName)) return true;
+        if (d.metaTileClass != null && d.metaTileClass.indexOf(CLASS_TOKEN_ELECTRIC_BLAST_FURNACE) >= 0) return true;
+        return false;
     }
 
     public static List<DumpMachineIndexDebug> dumpMachineIndexDebugFromMetaTiles() {
@@ -932,7 +965,40 @@ public final class GTReflectionDump {
         d.id = "fluid:" + fs.getFluid().getName();
         d.mb = fs.amount;
         d.isGas = isFluidGas(fs.getFluid());
+        d.displayName = fluidDisplayName(fs);
+        d.unlocalizedName = fluidUnlocalizedName(fs);
         out.add(d);
+    }
+
+    private static String fluidDisplayName(FluidStack fs) {
+        if (fs == null || fs.getFluid() == null) return null;
+        Object fluid = fs.getFluid();
+        String v = invokeFluidString(fluid, "getLocalizedName", new Class[] { FluidStack.class }, new Object[] { fs });
+        if (isUsableName(v)) return v;
+        v = invokeFluidString(fluid, "getLocalizedName", new Class[0], new Object[0]);
+        if (isUsableName(v)) return v;
+        return null;
+    }
+
+    private static String fluidUnlocalizedName(FluidStack fs) {
+        if (fs == null || fs.getFluid() == null) return null;
+        Object fluid = fs.getFluid();
+        String v = invokeFluidString(fluid, "getUnlocalizedName", new Class[] { FluidStack.class }, new Object[] { fs });
+        if (isUsableName(v)) return v;
+        v = invokeFluidString(fluid, "getUnlocalizedName", new Class[0], new Object[0]);
+        if (isUsableName(v)) return v;
+        return null;
+    }
+
+    private static String invokeFluidString(Object fluid, String methodName, Class[] argTypes, Object[] args) {
+        if (fluid == null || methodName == null) return null;
+        try {
+            Method m = fluid.getClass().getMethod(methodName, argTypes);
+            m.setAccessible(true);
+            Object out = m.invoke(fluid, args);
+            if (out instanceof String) return (String) out;
+        } catch (Throwable ignored) {}
+        return null;
     }
 
     private static String itemKey(ItemStack st) {
@@ -2434,5 +2500,7 @@ public final class GTReflectionDump {
         public String id;
         public int mb;
         public Boolean isGas;
+        public String displayName;
+        public String unlocalizedName;
     }
 }

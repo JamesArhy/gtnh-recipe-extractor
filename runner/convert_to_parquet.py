@@ -114,6 +114,8 @@ def _write_datapackage(out_dir: Path, root: dict) -> None:
                 {"name": "fluid_id", "type": "string", "description": "Fluid ID."},
                 {"name": "mb", "type": "integer", "description": "Fluid amount in millibuckets."},
                 {"name": "is_gas", "type": "boolean", "description": "True if fluid is gaseous; null if unknown."},
+                {"name": "display_name", "type": "string", "description": "Localized fluid name when available."},
+                {"name": "unlocalized_name", "type": "string", "description": "Unlocalized fluid name when available."},
             ],
         ),
         resource(
@@ -125,6 +127,8 @@ def _write_datapackage(out_dir: Path, root: dict) -> None:
                 {"name": "fluid_id", "type": "string", "description": "Fluid ID."},
                 {"name": "mb", "type": "integer", "description": "Fluid amount in millibuckets."},
                 {"name": "is_gas", "type": "boolean", "description": "True if fluid is gaseous; null if unknown."},
+                {"name": "display_name", "type": "string", "description": "Localized fluid name when available."},
+                {"name": "unlocalized_name", "type": "string", "description": "Unlocalized fluid name when available."},
             ],
         ),
     ]
@@ -242,6 +246,8 @@ def main():
                     "fluid_id": s.get("id"),
                     "mb": int(s.get("mb") or 0),
                     "is_gas": s.get("isGas"),
+                    "display_name": s.get("displayName"),
+                    "unlocalized_name": s.get("unlocalizedName"),
                 })
 
             for s in (r.get("fluidOutputs") or []):
@@ -250,6 +256,8 @@ def main():
                     "fluid_id": s.get("id"),
                     "mb": int(s.get("mb") or 0),
                     "is_gas": s.get("isGas"),
+                    "display_name": s.get("displayName"),
+                    "unlocalized_name": s.get("unlocalizedName"),
                 })
 
     machine_index_list = []
