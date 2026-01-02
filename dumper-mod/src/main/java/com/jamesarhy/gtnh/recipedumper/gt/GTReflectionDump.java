@@ -16,6 +16,8 @@ import net.minecraftforge.fluids.FluidStack;
 
 import java.lang.reflect.*;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class GTReflectionDump {
 
@@ -30,6 +32,11 @@ public final class GTReflectionDump {
     private static final String[] BONUS_DEBUG_KEYWORDS = new String[] {
             "parallel", "speed", "efficien", "coil", "bonus", "tier", "eut", "discount"
     };
+    private static final Pattern WORD_PER = Pattern.compile("\\bper\\b");
+    private static final Pattern WORD_EACH = Pattern.compile("\\beach\\b");
+    private static final Pattern CAP_PERCENT_PATTERN = Pattern.compile(
+            "(?i)(?:cap|max(?:imum)?|limit)\\s*(?:at|to|=)?\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*%"
+    );
 
     private interface RecipeProvider {
         List dumpRecipeMaps();
@@ -564,6 +571,7 @@ public final class GTReflectionDump {
             d.metaTileClass = mte.getClass().getName();
             d.metaTileName = bestMetaTileName(mte);
             d.displayName = bestDisplayNameFromMetaTile(mte);
+            d.machineTypes = collectMachineTypes(mte);
 
             Object mapObj = resolveRecipeMap(mte);
             if (mapObj != null) {
@@ -1411,6 +1419,44 @@ public final class GTReflectionDump {
         return (f instanceof String) ? (String) f : null;
     }
 
+    private static List collectMachineTypes(Object mte) {
+        if (mte == null) return null;
+        List out = new ArrayList();
+        Object v = tryInvokeAny(mte, new String[] {
+                "getMachineTypes", "getMachineType", "getMachineTypeList", "getMachineTypesList"
+        });
+        if (v == null) v = getAny(mte, new String[] {"machineType", "machineTypes", "mMachineType", "mMachineTypes"});
+        addMachineTypeCandidate(out, v);
+        if (out.isEmpty()) return null;
+        return out;
+    }
+
+    private static void addMachineTypeCandidate(List out, Object v) {
+        if (out == null || v == null) return;
+        if (v instanceof String) {
+            addMachineTypeString(out, (String) v);
+            return;
+        }
+        if (v instanceof String[]) {
+            String[] arr = (String[]) v;
+            for (int i = 0; i < arr.length; i++) addMachineTypeString(out, arr[i]);
+            return;
+        }
+        if (v instanceof Collection) {
+            Iterator it = ((Collection) v).iterator();
+            while (it.hasNext()) {
+                Object o = it.next();
+                if (o instanceof String) addMachineTypeString(out, (String) o);
+            }
+        }
+    }
+
+    private static void addMachineTypeString(List out, String value) {
+        if (!isUsableName(value)) return;
+        if (out.contains(value)) return;
+        out.add(value);
+    }
+
     private static Object bestBonusSource(Object mte) {
         if (mte == null) return null;
         Object controller = getAny(mte, new String[] {"mController", "controller", "mMultiBlock", "mMultiblock"});
@@ -1551,9 +1597,11 @@ public final class GTReflectionDump {
         if (isLikelyInternalName(v)) score -= 15;
         if (key != null) {
             if (key.indexOf("mNameRegional") >= 0 || key.indexOf("mNameLocalized") >= 0) score += 15;
-            if (key.indexOf("stack:displayName") >= 0) score += 10;
+            if (key.indexOf("stack:displayName") >= 0) score += 16;
             if (key.indexOf(".localized") >= 0) score += 8;
             if (key.indexOf("getLocalizedName") >= 0) score += 6;
+            if (key.indexOf("getLocalName") >= 0) score += 12;
+            if (key.indexOf("getMachineType") >= 0) score -= 12;
         }
         int lenBonus = v.length() / 4;
         if (lenBonus > 10) lenBonus = 10;
@@ -1755,7 +1803,18 @@ public final class GTReflectionDump {
         if (tooltip == null) return;
         boolean derived = false;
 
-        if (d.parallelBonus == null) {
+        List lines = collectTooltipLines(tooltip);
+        Set ruleMetrics = new HashSet();
+        if (lines != null && lines.size() > 0) {
+            List rules = parseBonusRulesFromTooltipLines(lines, ruleMetrics);
+            if (rules != null && rules.size() > 0) {
+                if (d.bonusRules == null) d.bonusRules = new ArrayList();
+                d.bonusRules.addAll(rules);
+                derived = true;
+            }
+        }
+
+        if (!ruleMetrics.contains("parallel") && d.parallelBonus == null) {
             Double v = readNumberFromAny(tooltip, new String[] {
                     "getParallel", "getParallelBonus", "getParallels", "getParallelism"
             });
@@ -1766,7 +1825,7 @@ public final class GTReflectionDump {
             }
         }
 
-        if (d.speedBonus == null) {
+        if (!ruleMetrics.contains("speed") && d.speedBonus == null) {
             Double v = readNumberFromAny(tooltip, new String[] {
                     "getSpeedBonus", "getSpeedMultiplier", "getSpeedModifier", "getSpeed"
             });
@@ -1777,7 +1836,7 @@ public final class GTReflectionDump {
             }
         }
 
-        if (d.efficiencyBonus == null) {
+        if (!ruleMetrics.contains("efficiency") && d.efficiencyBonus == null) {
             Double v = readNumberFromAny(tooltip, new String[] {
                     "getEuModifier", "getEUtModifier", "getEnergyModifier", "getEfficiencyBonus", "getEfficiency"
             });
@@ -1789,23 +1848,22 @@ public final class GTReflectionDump {
             }
         }
 
-        List lines = collectTooltipLines(tooltip);
         if (lines != null && lines.size() > 0) {
-            if (d.parallelBonus == null) {
+            if (!ruleMetrics.contains("parallel") && d.parallelBonus == null) {
                 Double v = readParallelFromTooltipLines(lines);
                 if (v != null) {
                     d.parallelBonus = v;
                     derived = true;
                 }
             }
-            if (d.speedBonus == null) {
+            if (!ruleMetrics.contains("speed") && d.speedBonus == null) {
                 Double v = readSpeedFromTooltipLines(lines);
                 if (v != null) {
                     d.speedBonus = v;
                     derived = true;
                 }
             }
-            if (d.efficiencyBonus == null) {
+            if (!ruleMetrics.contains("efficiency") && d.efficiencyBonus == null) {
                 Double v = readEfficiencyFromTooltipLines(lines);
                 if (v != null) {
                     d.efficiencyBonus = v;
@@ -1813,6 +1871,10 @@ public final class GTReflectionDump {
                 }
             }
         }
+
+        if (ruleMetrics.contains("parallel")) d.parallelBonus = null;
+        if (ruleMetrics.contains("speed")) d.speedBonus = null;
+        if (ruleMetrics.contains("efficiency")) d.efficiencyBonus = null;
 
         if (derived) d.tooltipDerived = Boolean.TRUE;
     }
@@ -1906,6 +1968,7 @@ public final class GTReflectionDump {
             String line = ((String) lines.get(i)).toLowerCase();
             if (line.indexOf("parallel") < 0) continue;
             if (line.indexOf("stability") >= 0) continue;
+            if (isRuleCandidateLine(line)) continue;
             List tokens = parseNumberTokens(line);
             if (tokens.size() == 0) continue;
             NumberToken t = (NumberToken) tokens.get(0);
@@ -1921,6 +1984,7 @@ public final class GTReflectionDump {
                     && line.indexOf("duration") < 0 && line.indexOf("time") < 0) {
                 continue;
             }
+            if (isRuleCandidateLine(line)) continue;
             List tokens = parseNumberTokens(line);
             if (tokens.size() == 0) continue;
             NumberToken t = (NumberToken) tokens.get(0);
@@ -1947,6 +2011,7 @@ public final class GTReflectionDump {
                     && line.indexOf("energy") < 0 && line.indexOf("usage") < 0 && line.indexOf("steam") < 0) {
                 continue;
             }
+            if (isRuleCandidateLine(line)) continue;
             List tokens = parseNumberTokens(line);
             if (tokens.size() == 0) continue;
             NumberToken t = (NumberToken) tokens.get(0);
@@ -1957,10 +2022,143 @@ public final class GTReflectionDump {
         return null;
     }
 
+    private static List parseBonusRulesFromTooltipLines(List lines, Set metricsOut) {
+        List out = new ArrayList();
+        if (lines == null) return out;
+        for (int i = 0; i < lines.size(); i++) {
+            Object o = lines.get(i);
+            if (!(o instanceof String)) continue;
+            BonusRule r = tryParseBonusRuleFromLine((String) o);
+            if (r == null) continue;
+            out.add(r);
+            if (metricsOut != null && r.metric != null) metricsOut.add(r.metric);
+        }
+        return out;
+    }
+
+    private static BonusRule tryParseBonusRuleFromLine(String rawLine) {
+        if (!isUsableName(rawLine)) return null;
+        String line = normalizeTooltipLine(rawLine);
+        if (!isUsableName(line)) return null;
+        String metric = detectBonusMetric(line);
+        if (metric == null) return null;
+        if (!isRuleCandidateLine(line)) return null;
+        if (line.indexOf("tier") < 0) return null;
+
+        List tokens = parseNumberTokens(line);
+        if (tokens.size() == 0) return null;
+
+        NumberToken first = (NumberToken) tokens.get(0);
+        NumberToken second = (tokens.size() > 1) ? (NumberToken) tokens.get(1) : null;
+
+        Double base = null;
+        Double perTier = null;
+        if (line.indexOf("+") >= 0 && second != null) {
+            base = normalizeRuleNumber(first);
+            perTier = normalizeRuleNumber(second);
+        } else if (hasWord(WORD_PER, line) || hasWord(WORD_EACH, line)) {
+            perTier = normalizeRuleNumber(first);
+            if (first.hasPercent && !"parallel".equals(metric)) {
+                base = new Double(1.0);
+            } else if ("parallel".equals(metric)) {
+                base = new Double(0.0);
+            }
+        } else if (line.indexOf("*") >= 0 || line.indexOf("x") >= 0 || line.indexOf("\u00D7") >= 0) {
+            perTier = normalizeRuleNumber(first);
+            base = new Double(0.0);
+        } else {
+            return null;
+        }
+
+        BonusRule rule = new BonusRule();
+        rule.metric = metric;
+        rule.source = detectTierSource(line);
+        rule.valueType = "parallel".equals(metric) ? "count" : "multiplier";
+        rule.base = base;
+        rule.perTier = perTier;
+        rule.rawLine = rawLine;
+
+        Double capPercent = readCapPercent(line);
+        if (capPercent != null && "efficiency".equals(metric) && perTier != null && perTier.doubleValue() < 0.0) {
+            rule.capMin = new Double(1.0 - (capPercent.doubleValue() / 100.0));
+        }
+
+        return rule;
+    }
+
+    private static String normalizeTooltipLine(String line) {
+        String cleaned = stripFormatting(line);
+        return (cleaned == null) ? null : cleaned.toLowerCase();
+    }
+
+    private static String detectBonusMetric(String line) {
+        if (line.indexOf("parallel") >= 0) return "parallel";
+        if (line.indexOf("speed") >= 0 || line.indexOf("faster") >= 0
+                || line.indexOf("duration") >= 0 || line.indexOf("time") >= 0) {
+            return "speed";
+        }
+        if (line.indexOf("efficien") >= 0 || line.indexOf("eu") >= 0
+                || line.indexOf("energy") >= 0 || line.indexOf("usage") >= 0
+                || line.indexOf("discount") >= 0) {
+            return "efficiency";
+        }
+        return null;
+    }
+
+    private static String detectTierSource(String line) {
+        if (line.indexOf("recipe") >= 0
+                && (line.indexOf("above") >= 0 || line.indexOf("over") >= 0 || line.indexOf("higher") >= 0)) {
+            return "energy_tier_delta";
+        }
+        if (line.indexOf("energy hatch") >= 0 || line.indexOf("energy tier") >= 0 || line.indexOf("voltage") >= 0) {
+            return "energy_tier";
+        }
+        if (line.indexOf("heating coil") >= 0 || line.indexOf("coil") >= 0) {
+            return "coil_tier";
+        }
+        if (line.indexOf("item pipe") >= 0) return "item_pipe_tier";
+        if (line.indexOf("fluid pipe") >= 0) return "fluid_pipe_tier";
+        if (line.indexOf("pipe casing") >= 0 || line.indexOf("pipe tier") >= 0) return "pipe_tier";
+        if (line.indexOf("solenoid") >= 0) return "solenoid_tier";
+        if (line.indexOf("tier") >= 0) return "tier";
+        return "unknown";
+    }
+
+    private static boolean isRuleCandidateLine(String line) {
+        if (line.indexOf("tier") >= 0) return true;
+        return hasWord(WORD_PER, line) || hasWord(WORD_EACH, line);
+    }
+
+    private static boolean hasWord(Pattern pattern, String line) {
+        if (pattern == null || line == null) return false;
+        Matcher m = pattern.matcher(line);
+        return m.find();
+    }
+
+    private static Double normalizeRuleNumber(NumberToken token) {
+        if (token == null) return null;
+        double v = token.value;
+        if (token.hasPercent) v = v / 100.0;
+        return new Double(v);
+    }
+
+    private static Double readCapPercent(String line) {
+        if (line == null) return null;
+        Matcher m = CAP_PERCENT_PATTERN.matcher(line);
+        if (!m.find()) return null;
+        try {
+            return new Double(Double.parseDouble(m.group(1)));
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
     private static final class NumberToken {
         public double value;
         public boolean hasPercent;
         public boolean hasX;
+        public int start;
+        public int end;
+        public boolean negative;
     }
 
     private static List parseNumberTokens(String line) {
@@ -1990,11 +2188,18 @@ public final class GTReflectionDump {
                 String num = line.substring(start, i);
                 try {
                     double val = Double.parseDouble(num);
+                    int signIndex = start - 1;
+                    while (signIndex >= 0 && line.charAt(signIndex) == ' ') signIndex--;
+                    boolean negative = signIndex >= 0 && line.charAt(signIndex) == '-';
+                    if (negative) val = -val;
                     NumberToken t = new NumberToken();
                     t.value = val;
                     t.hasPercent = hasAdjacentMarker(line, start, i, '%');
                     t.hasX = hasAdjacentMarker(line, start, i, 'x') || hasAdjacentMarker(line, start, i, 'X')
                             || hasAdjacentMarker(line, start, i, '\u00D7');
+                    t.start = start;
+                    t.end = i;
+                    t.negative = negative;
                     out.add(t);
                 } catch (Throwable ignored) {}
             } else {
@@ -2422,9 +2627,21 @@ public final class GTReflectionDump {
         public List recipes; // List<DumpRecipe>
     }
 
+    public static final class BonusRule {
+        public String metric;   // "parallel", "speed", "efficiency"
+        public String source;   // e.g., "coil_tier", "item_pipe_tier", "energy_tier_delta"
+        public String valueType; // "count" or "multiplier"
+        public Double base;
+        public Double perTier;
+        public Double capMin;
+        public Double capMax;
+        public String rawLine;
+    }
+
     public static final class DumpMachineIndex {
         public String machineId;
         public String displayName;
+        public List machineTypes; // List<String>
         public Integer metaTileId;
         public String metaTileName;
         public String metaTileClass;
@@ -2434,6 +2651,7 @@ public final class GTReflectionDump {
         public Double speedBonus;
         public Double efficiencyBonus;
         public Boolean tooltipDerived;
+        public List bonusRules; // List<BonusRule>
     }
 
     public static final class DumpMachineIndexDebug {

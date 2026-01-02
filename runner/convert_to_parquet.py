@@ -52,11 +52,21 @@ def _write_datapackage(out_dir: Path, root: dict) -> None:
                 {"name": "meta_tile_id", "type": "integer", "description": "GregTech MetaTileEntity ID."},
                 {"name": "meta_tile_name", "type": "string", "description": "MetaTileEntity internal name."},
                 {"name": "meta_tile_class", "type": "string", "description": "MetaTileEntity class name."},
+                {
+                    "name": "machine_types_json",
+                    "type": "string",
+                    "description": "JSON array of machine type strings when available.",
+                },
                 {"name": "parallel_bonus", "type": "number", "description": "Parallel bonus multiplier when available."},
                 {"name": "max_parallel", "type": "number", "description": "Absolute max parallel operations when known; null when unknown."},
                 {"name": "coil_bonus", "type": "number", "description": "Coil-derived speed or energy bonus."},
                 {"name": "speed_bonus", "type": "number", "description": "Internal speed multiplier."},
                 {"name": "efficiency_bonus", "type": "number", "description": "Efficiency multiplier."},
+                {
+                    "name": "bonus_rules_json",
+                    "type": "string",
+                    "description": "JSON array of parsed bonus rule objects when available.",
+                },
                 {"name": "tooltip_derived", "type": "boolean", "description": "True if any bonus was sourced from the tooltip."},
             ],
         ),
@@ -200,6 +210,8 @@ def main():
             "coil_bonus": m.get("coilBonus"),
             "speed_bonus": m.get("speedBonus"),
             "efficiency_bonus": m.get("efficiencyBonus"),
+            "machine_types_json": None,
+            "bonus_rules_json": None,
             "tooltip_derived": m.get("tooltipDerived"),
             "meta_tile_id": None,
             "meta_tile_name": None,
@@ -273,11 +285,13 @@ def main():
             "meta_tile_id": m.get("metaTileId"),
             "meta_tile_name": m.get("metaTileName"),
             "meta_tile_class": m.get("metaTileClass"),
+            "machine_types_json": json.dumps(m.get("machineTypes")) if m.get("machineTypes") is not None else None,
             "parallel_bonus": m.get("parallelBonus"),
             "max_parallel": m.get("maxParallel"),
             "coil_bonus": m.get("coilBonus"),
             "speed_bonus": m.get("speedBonus"),
             "efficiency_bonus": m.get("efficiencyBonus"),
+            "bonus_rules_json": json.dumps(m.get("bonusRules")) if m.get("bonusRules") is not None else None,
             "tooltip_derived": m.get("tooltipDerived"),
         })
 
@@ -298,6 +312,8 @@ def main():
                 "coil_bonus": None,
                 "speed_bonus": None,
                 "efficiency_bonus": None,
+                "machine_types_json": None,
+                "bonus_rules_json": None,
                 "tooltip_derived": None,
                 "meta_tile_id": None,
                 "meta_tile_name": None,
@@ -310,6 +326,10 @@ def main():
         for key in ("parallel_bonus", "max_parallel", "coil_bonus", "speed_bonus", "efficiency_bonus"):
             if row.get(key) is None and meta.get(key) is not None:
                 row[key] = meta.get(key)
+        if row.get("machine_types_json") is None and meta.get("machine_types_json") is not None:
+            row["machine_types_json"] = meta.get("machine_types_json")
+        if row.get("bonus_rules_json") is None and meta.get("bonus_rules_json") is not None:
+            row["bonus_rules_json"] = meta.get("bonus_rules_json")
         if meta.get("tooltip_derived") is True:
             row["tooltip_derived"] = True
         for key in ("meta_tile_id", "meta_tile_name", "meta_tile_class"):
